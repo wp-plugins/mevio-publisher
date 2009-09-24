@@ -1,12 +1,11 @@
-=== Plugin Name ===
-Contributors: mevio.com
+=== MEVIO Publisher ===
+Contributors: ndmevio
 Tags: podcast,podcasting,publishing,mevio,media,video,audio
-Requires at least: 2.7
-Tested up to: 2.7.1
-Latest version: http://producers.mevio.com/software/mevio-publisher-wordpress-plugin/
-Requires: PHP V5.2+ with json_decode function. If you are not sure whether your web hosting is compatible, simply run the plugin and it will check for compatibility.
+Requires at least: 2.7.1
+Tested up to: 2.8.4
+Stable tag: 0.3
 
-Cross publish between mevio.com and your Wordpress blog
+Cross publish from your mevio.com media account to your Wordpress blog.
 
 == Description ==
 
@@ -64,3 +63,16 @@ Deactivating then re-activating the setting, will create a new, unique ping URL.
 
 These are merely useful shortcuts to some of your show, media and administration pages on mevio.com. These shortcuts only appear once you have entered your mevio.com subdomain, and and clicked "Save Settings" for the first time.
 
+
+# == Changelog ==  
+#   
+# = 0.3 =  
+# * Compatibility with WP2.8.x
+# * Improved episode importing to avoid duplicates.
+#   
+# = 0.2 =  
+# * Fixed font style display bug apparent on some blogs.
+# * Compatibility with PHP 4.x
+#   
+# = 0.1 =  
+# * Initial release.   

@@ -4,11 +4,12 @@ Plugin Name: MEVIOPublisher
 Plugin URI: http://producers.mevio.com/software/mevio-publisher-wordpress-plugin/
 Description: Cross publish from mevio.com to your Wordpress blog and automatically insert an episode media player.
 Author: Mevio, Inc
-Version: 0.1.1
+Version: 0.3
 Author URI: http://producers.mevio.com
+License: GPL
 */ 
 
-/*  Copyright 2009  Mevio, Inc  (email : n.dixon@mevio.com)
+/*  
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,7 +25,12 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-define ('MEVIOPUBLISHER_VERSION', '0.1.1 Beta');
+define ('MEVIOPUBLISHER_VERSION', '0.3 Beta');
+
+/**
+ * Behavior switch for Services_JSON::decode()
+ */
+define('SERVICES_JSON_LOOSE_TYPE', 16);
 
 //require_once('includes/simplepie.inc');
 if (!class_exists('mevio_publisher')) {
@@ -58,20 +64,15 @@ if (!class_exists('mevio_publisher')) {
 		/**
 		* PHP 4 Compatible Constructor
 		*/
-		function mevio_publisher(){$this->__construct();}
+		function meviopublisher(){$this->__construct();}
 		
 		/**
 		* PHP 5 Constructor
 		*/		
 		function __construct(){
 
-			// check for compatibility:
-			if ( !function_exists('json_decode') ) { $this->adminMessage = 'WARNING: Your web host is not compatible with the episode import functions of this plugin. You must be running PHP 5.2 or above, you are running PHP '.phpversion().'.'; }
 			add_action("admin_menu", array(&$this,"add_admin_pages"));
-			//add_action("admin_head", array(&$this,"add_adminstyles"));
-	
-				$this->adminOptions = $this->getAdminOptions();
-				$this->guidExtraction('ss');
+			$this->adminOptions = $this->getAdminOptions();
 			
 			/*
 			* Register the shortcode
@@ -88,47 +89,58 @@ if (!class_exists('mevio_publisher')) {
 					if (  $this->adminOptions['meviopub_firstrun'] === '1' && isset( $_POST['previmport'] ) ) {
 						// this is the first run, and so we need to tell the plugin the date/time for future reference
 						// in case the user has limited the number of import items.
+						$this->adminOptions['meviopub_showid'] = $this->updateFromFeed($_POST['previmport']);
 						$firstrun = true;
-					} else { $firstrun = false; }
-					$this->adminOptions['meviopub_showid'] = $this->updateFromFeed($_POST['previmport'],$firstrun);
+					} else { 
+						$this->adminOptions['meviopub_showid'] = $this->updateFromFeed();
+						$firstrun = false; 
+					}
 				} else {
 					$this->adminMessage = 'Update failed because you have not completed your options below.';
 				}
 			}
 		}
 		
+		
 		/**
 		 * Get the mevio RSS feed and look for new episodes to syndicate
 		 * @param int Number of episodes to fetch - only set on the very first update run
 		 * @return int Show ID extracted from the media URL (from the guid)
 		 */
-		function updateFromFeed($episodes=false) {
-			
-			
+		function updateFromFeed($episodes=false) {	
+
 			// check for correct option values, otherwise kick us out:
 			if ( !$this->adminOptions['meviopub_subdomain'] ) {
 				exit('Error: cannot process RSS feed as you have not entered your mevio.com domain name. Please complete the MEVIOpublisher settings.');
 			}
 			
 			$feed = 'http://'.$this->adminOptions['meviopub_subdomain'].'.mevio.com?format=json';
-			
-			$poo = json_decode($this->fetch_remote_file('http://'.$this->adminOptions['meviopub_subdomain'].'.mevio.com?format=json'));
-			
+						
 			// Go do the work...
 			$file = $this->fetch_remote_file($feed);
 			if ( $file ) {
 				if ( $this->adminOptions['meviopub_firstrun'] === '1' ) { $this->adminOptions['meviopub_firstrun'] = 0; }
-				$rss = json_decode( $file, true );
 				
+				// PHP4 compatibility
+				if ( !function_exists( 'json_decode' ) ) {
+					require_once( dirname(__FILE__) . '/JSON.php' );
+				}
+				set_time_limit(60);			
+				$rss = json_decode($file,SERVICES_JSON_LOOSE_TYPE);
 				// loop through and deal with the data
 				// get a list of all posts in the show publishing category
 				
 				// so we can report on how many posts were written
 				$writtencount = 0;
-				$postlist = $this->posts_by_category( $this->adminOptions['meviopub_wpcategory'] );
-				if ( $postlist ) { //&& $postlist[0][2] > $rss->channel['lastbuilddate'] ) {
+				
+				// get a list of all posts that this plugin has already inserted
+				// each one has a custom field of creator=>MEVIOpublisher
+				global $wpdb;
+				$ct = $wpdb->query("SELECT ID, guid FROM $wpdb->posts a WHERE EXISTS (SELECT meta_id FROM $wpdb->postmeta WHERE post_id = a.ID AND meta_key LIKE '%creator%')");//in ( 'creator'))");
+				$postlist = $wpdb->last_result;
+				if ( $postlist ) {
 					foreach ( $postlist as $k=>$p ) {
-						$ps[$p['1']] = $p['2'];
+						$ps[$p->guid] = $p->ID;
 					} 
 				}
 					$post = new StdClass;
@@ -158,11 +170,15 @@ if (!class_exists('mevio_publisher')) {
 								
 						// logic to handle first run episode count filtering
 						// and future first run date filtering
+						// break after initial run episode count reached
 						if ( $episodes && $cnt > $episodes ) { break; } // $episodes is false except the initial run
+						// first run
 						elseif ( $episodes && $cnt === 1) { $this->adminOptions['meviopub_importhistory'] = $ep['pub_date']; }
+						// normal run
 						elseif ( !$episodes && $this->adminOptions['meviopub_importhistory'] && strtotime($this->adminOptions['meviopub_importhistory']) >= $ep['pub_date']) { break; }
 						
 						$cnt++;
+						
 						if ( isset( $ps[$ep['guid']] ) ) { continue; }
 						else {
 							// if there's no guid match, then we have a new episode to past
@@ -300,7 +316,7 @@ if (!class_exists('mevio_publisher')) {
 				echo '<p><strong>You have not run the update for the first time.<br />Please click "Update" and wait until the process is complete.</strong></p>';
 			} ?>
 				
-			<?php if ( $this->adminOptions['meviopub_subdomain'] && function_exists('json_decode') ) { ?>
+			<?php if ( $this->adminOptions['meviopub_subdomain'] ){// && function_exists('json_decode') ) { ?>
 				<hr />
 				
 				<?php
@@ -343,9 +359,7 @@ if (!class_exists('mevio_publisher')) {
 				</span>
 				</form>
 			
-			<?php }  elseif ( !function_exists('json_decode') ) { ?>
-				<h3>To use this plugin, you need to be running PHP 5.2 or greater. You are currently running PHP <?php echo phpversion(); ?>.</h3>
-			<?php }  else { ?>
+			<?php } else { ?>
 				<h3>To use this plugin, please complete the Configuration below and press "Save Settings".</h3>
 			<?php } ?>
 			<hr style="clear:right;" />
@@ -380,13 +394,13 @@ if (!class_exists('mevio_publisher')) {
 				<tr>
 					<th scope="row" valign="top">Direct media download link</th>
 					<td>
-						<input  type="checkbox" id="meviopub_medialink" name="meviopub_medialink" value="1"<?php if ( $this->adminOptions['meviopub_medialink'] == '1' ) echo ' checked'; ?>" />
+						<input  type="checkbox" id="meviopub_medialink" name="meviopub_medialink" value="1" <?php if ( $this->adminOptions['meviopub_medialink'] == '1' ) echo ' checked'; ?> />
 						<label for="meviopub_medialink">Includes a direct link to the original media file.</label>
 					</td>
 				</tr><tr>
 					<th scope="row" valign="top">Album art</th>
 					<td>
-						<input  type="checkbox" id="meviopub_useart" name="meviopub_useart" value="1"<?php if ( $this->adminOptions['meviopub_useart'] == '1' ) echo ' checked'; ?>" />
+						<input  type="checkbox" id="meviopub_useart" name="meviopub_useart" value="1" <?php if ( $this->adminOptions['meviopub_useart'] == '1' ) echo ' checked'; ?> />
 						<label for="meviopub_useart">Includes your show's album art (150x150 pixels) in the episode notes. <br />Can be styled using css class "mpubart".</label>
 					</td>
 				</tr>
@@ -432,7 +446,7 @@ if (!class_exists('mevio_publisher')) {
 				<tr>
 					<th scope="row" valign="top">Activate Ping URL</th>
 					<td>
-						<input  type="checkbox" id="meviopub_useping" name="meviopub_useping" value="1"<?php if ( $this->adminOptions['meviopub_useping'] == '1' ) echo ' checked'; ?>" />
+						<input  type="checkbox" id="meviopub_useping" name="meviopub_useping" value="1"<?php if ( $this->adminOptions['meviopub_useping'] == '1' ) echo ' checked'; ?> />
 						<label for="meviopub_useping">Activate Ping URL<br />The Ping URL is a simple mechanism to generate an update in a Wordpress Blog without loggin in to the Admin. <br />
 						To RESET, deactivate the Ping URL option, Save settings, then re-Activate this option. <br />
 						The active Ping URL is displayed next to the Update button above.
@@ -593,27 +607,7 @@ if (!class_exists('mevio_publisher')) {
 				return $ret;		
 			} // function SyndicatedPost::use_api ()
 		
-		/**
-		 * Get a list of post data for a particular category
-		 * @param int Category ID
-		 * @param string Query SELECT statement
-		 */
-		function posts_by_category($cat, $select='ID, guid, post_date') {
-			global $wpdb, $post;
-			$tp = $wpdb->prefix;
-			
-			$postlist = (array)$wpdb->get_results("select {$select} 
-						FROM {$tp}posts 
-						LEFT JOIN {$tp}term_relationships ON {$tp}term_relationships.object_id = {$tp}posts.ID 
-						LEFT JOIN {$tp}terms ON {$tp}term_relationships.term_taxonomy_id = {$tp}terms.term_id 
-						WHERE {$tp}terms.term_id = {$cat}
-						ORDER BY post_date DESC ",ARRAY_N);
-			if (empty($postlist)) {
-				return NULL;
-			} else {
-				return $postlist;
-			}
-		}
+		
 
 		/**
 		 * Write a new post to the database, and manually update the post's guid
@@ -624,7 +618,6 @@ if (!class_exists('mevio_publisher')) {
 		 */
 		function insert_new ($post,$guid) {
 			global $wpdb, $wp_db_version;
-			
 			// Why doesn't wp_insert_post already do this?
 			foreach ($post as $key => $value) :
 				if (is_string($value)) :
@@ -657,6 +650,10 @@ if (!class_exists('mevio_publisher')) {
 					SET guid='{$guid}'
 					WHERE ID='{$wp_id}'
 				");
+				
+				// Wordpress 2.8 has a problem associating new posts with the appropriate category
+				//  this is a hack workaround till they get it fixed
+				
 		} /* MevioPublisher::insert_new() */
 		
 		
@@ -796,7 +793,6 @@ if (!class_exists('mevio_publisher')) {
 		
 	
 		function fetch_remote_file($file) {
-		
 			// use curl
 			if ( function_exists( 'curl_init' ) ) {
 				$curl_handle=curl_init();
@@ -881,6 +877,8 @@ function mv_meviopub_post($the_content) {
 	}
     return $the_content;
 }
+
+
 
 // add them actions...
 add_filter('the_content', 'mv_meviopub_post');
