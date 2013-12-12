@@ -7,6 +7,8 @@ Stable tag: 0.3
 
 Cross publish from your mevio.com media account to your Wordpress blog.
 
+== THIS PLUGIN IS NO LONGER UNDER DEVELOPMENT ==
+
 == Description ==
 
 This plugin provides a straightforward way to take video and audio episodes uploaded to your mevio.com account and add them to your Wordpress blog, including show notes, media link, and automatic insertion of the mevio.com media player.
